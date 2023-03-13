@@ -1,0 +1,64 @@
+import ctraderapi as cta
+import pandas as pd
+
+# Define the instrument and timeframe
+symbol = "XAUUSD"
+timeframe = cta.Timeframe.MINUTE_5
+
+# Connect to the cTrader server
+api = cta.Api()
+api.connect()
+
+# Define the indicators
+ema20 = cta.Indicator.create("EMA", symbol, timeframe, 20)
+ema50 = cta.Indicator.create("EMA", symbol, timeframe, 50)
+
+# Define the ICT strategy
+def is_ict_buy_signal(df):
+    # Check if the 20-period EMA is above the 50-period EMA
+    if df["EMA20"] > df["EMA50"]:
+        # Check if the candle closed above the 20-period EMA
+        if df["Close"] > df["EMA20"]:
+            # Check if the previous candle closed below the 20-period EMA
+            if df["Close"].shift(1) < df["EMA20"].shift(1):
+                # Check if the candle's body is at least twice the size of its wick
+                if (df["Close"] - df["Open"]) >= 2 * (df["High"] - df["Close"]):
+                    return True
+    return False
+
+def is_ict_sell_signal(df):
+    # Check if the 20-period EMA is below the 50-period EMA
+    if df["EMA20"] < df["EMA50"]:
+        # Check if the candle closed below the 20-period EMA
+        if df["Close"] < df["EMA20"]:
+            # Check if the previous candle closed above the 20-period EMA
+            if df["Close"].shift(1) > df["EMA20"].shift(1):
+                # Check if the candle's body is at least twice the size of its wick
+                if (df["Open"] - df["Close"]) >= 2 * (df["Close"] - df["Low"]):
+                    return True
+    return False
+
+# Define the trading logic
+def on_bar(instrument, timeframe, bar):
+    # Get the latest data for the indicators
+    data = api.get_indicator_data([ema20, ema50], include_empty=True)
+    
+    # Convert the data to a pandas DataFrame
+    df = pd.DataFrame(data)
+    
+    # Check for buy and sell signals
+    if is_ict_buy_signal(df):
+        # Place a buy order
+        api.place_order(instrument, cta.OrderType.BUY, 0.1)
+    elif is_ict_sell_signal(df):
+        # Place a sell order
+        api.place_order(instrument, cta.OrderType.SELL, 0.1)
+
+# Subscribe to the instrument and timeframe
+api.subscribe(symbol, timeframe)
+
+# Set the trading logic to run on every new bar
+api.on_bar = on_bar
+
+# Start the event loop
+api.run()
